@@ -487,10 +487,60 @@ module "eks" {
         Name = "trn1n-32xl-ng1",
       })
     }
-
     #--------------------------------------------------
     # Inferentia2 Spot node group
     #--------------------------------------------------
+    inf2-8xl-ng = {
+      name        = "inf2-8xl-ng"
+      description = "inf2 8xl node group for ML inference workloads"
+      # We use index 2 to select the subnet in AZ1 with the 100.x CIDR:
+      #   module.vpc.private_subnets = [AZ1_10.x, AZ2_10.x, AZ1_100.x, AZ2_100.x]
+      subnet_ids = [module.vpc.private_subnets[2]]
+
+      # aws ssm get-parameters --names /aws/service/eks/optimized-ami/1.27/amazon-linux-2-gpu/recommended/image_id --region us-west-2
+      # ami_id   = "ami-0e0deb7ae582f6fe9" # Use this to pass custom AMI ID and ignore ami_type
+      ami_type       = "AL2_x86_64_GPU"
+      capacity_type  = "ON_DEMAND" # Use SPOT for Spot instances
+      instance_types = ["inf2.8xlarge"]
+
+      pre_bootstrap_user_data = <<-EOT
+        # Install Neuron monitoring tools
+        yum install aws-neuronx-tools-2.* -y
+        export PATH=/opt/aws/neuron/bin:$PATH
+      EOT
+
+      min_size     = var.inf2_8xl_min_size
+      max_size     = 2
+      desired_size = var.inf2_8xl_desired_size
+
+      labels = {
+        instanceType    = "inf2-8xl"
+        provisionerType = "cluster-autoscaler"
+      }
+
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size = 500
+            volume_type = "gp3"
+          }
+        }
+      }
+
+      taints = [
+        {
+          key    = "aws.amazon.com/neuron",
+          value  = "true",
+          effect = "NO_SCHEDULE"
+        }
+      ]
+
+      tags = merge(local.tags, {
+        Name                     = "inf2-8xl-ng",
+        "karpenter.sh/discovery" = local.name
+      })
+    }
     inf2-24xl-ng = {
       name        = "inf2-24xl-ng"
       description = "inf2 24xl node group for ML inference workloads"
